@@ -1,0 +1,130 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap');
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Fira Code', monospace;
+    background: #202020;
+    color: #f0f0f0;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.terminal {
+    width: 90%;
+    max-width: 800px;
+    height: 80vh;
+    background: #0c0c0c;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.terminal-header {
+    background: #333;
+    color: #ddd;
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    font-size: 14px;
+}
+
+.controls {
+    display: flex;
+    gap: 10px;
+}
+
+.controls span {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.close {
+    background: #ff5f56;
+}
+
+.minimize {
+    background: #ffbd2e;
+}
+
+.maximize {
+    background: #27c93f;
+}
+
+.terminal-content {
+    flex: 1;
+    padding: 15px;
+    overflow-y: auto;
+    line-height: 1.5;
+}
+
+.terminal-input-line {
+    display: flex;
+    padding: 8px 15px;
+    background: #0c0c0c;
+    border-top: 1px solid #333;
+}
+
+.prompt {
+    color: #0f0;
+    margin-right: 10px;
+}
+
+#terminal-input {
+    background: transparent;
+    border: none;
+    color: #f0f0f0;
+    font-family: 'Fira Code', monospace;
+    font-size: 16px;
+    width: 100%;
+    outline: none;
+}
+
+.message {
+    margin-bottom: 5px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.system {
+    color: #ff8;
+}
+
+.error {
+    color: #f55;
+}
+
+.user {
+    color: #5f5;
+}
+
+.received {
+    color: #5ff;
+}
+
+/* Retro terminal cursor effect */
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+#terminal-input::after {
+    content: '|';
+    animation: blink 1s step-start infinite;
+}

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XorChat Terminal</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/terminal.css') }}">
+</head>
+<body>
+    <div class="terminal">
+        <div class="terminal-header">
+            <span>XorChat Terminal</span>
+            <div class="controls">
+                <span class="minimize">─</span>
+                <span class="maximize">□</span>
+                <span class="close">×</span>
+            </div>
+        </div>
+        <div class="terminal-content" id="terminal-output"></div>
+        <div class="terminal-input-line">
+            <span class="prompt">>></span>
+            <input type="text" id="terminal-input" autofocus>
+        </div>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="{{ url_for('static', filename='js/terminal.js') }}"></script>
+</body>
+</html>

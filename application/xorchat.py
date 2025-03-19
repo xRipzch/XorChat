@@ -1,186 +1,117 @@
-import socket
-import threading
-import json
 import os
-import sys
+import json
+import threading
+from flask import Flask, render_template, request
+from flask_socketio import SocketIO, emit, join_room, leave_room
 
 # Global session key (generated at startup)
 session_key = os.urandom(16)
-alias = None
-connections = []  # List of active peer connections
+connections = {}  # Dictionary to track socket connections by session ID
 lock = threading.Lock()  # For thread safety
 
 def xor_encrypt_decrypt(data: bytes, key: bytes) -> bytes:
     """Performs XOR cipher on data using the given key."""
     return bytes([b ^ key[i % len(key)] for i, b in enumerate(data)])
 
-def send_json(conn: socket.socket, obj: dict):
-    """Sends a JSON object over a socket, terminated with a newline."""
-    try:
-        message = json.dumps(obj) + "\n"
-        conn.sendall(message.encode())
-    except Exception as e:
-        print("Error sending:", e)
+app = Flask(__name__, static_folder='static', template_folder='templates')
+app.config['SECRET_KEY'] = os.urandom(24)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-def handle_connection(conn: socket.socket, addr):
-    """Handles an incoming connection from a peer."""
+@app.route('/')
+def index():
+    """Serve the main terminal interface."""
+    return render_template('terminal.html')
+
+@socketio.on('connect')
+def on_connect():
+    """Handle new client connections."""
+    connections[request.sid] = {
+        'alias': None,
+        'room': 'lobby'
+    }
+    emit('system_message', {'message': 'Connected to XorChat server. Choose an alias to begin.'})
+
+@socketio.on('disconnect')
+def on_disconnect():
+    """Handle client disconnection."""
+    if request.sid in connections:
+        alias = connections[request.sid]['alias'] or 'Unknown'
+        room = connections[request.sid]['room']
+        del connections[request.sid]
+        emit('system_message', {'message': f'{alias} has left the chat.'}, 
+             room=room, include_self=False)
+
+@socketio.on('set_alias')
+def on_set_alias(data):
+    """Set user alias."""
+    if request.sid in connections:
+        alias = data.get('alias', 'Anonymous')
+        connections[request.sid]['alias'] = alias
+        emit('system_message', {'message': f'Your alias is now: {alias}'})
+
+@socketio.on('send_message')
+def on_send_message(data):
+    """Handle incoming chat messages."""
+    if request.sid in connections:
+        sender = connections[request.sid]['alias'] or 'Unknown'
+        room = connections[request.sid]['room']
+        
+        # Encrypt the message
+        plaintext = data.get('message', '').encode()
+        encrypted = xor_encrypt_decrypt(plaintext, session_key)
+        
+        # Broadcast to all users in the room
+        emit('chat_message', {
+            'type': 'chat',
+            'alias': sender,
+            'message': encrypted.hex()
+        }, room=room)
+
+@socketio.on('command')
+def on_command(data):
+    """Process chat commands."""
     global session_key
-    buffer = ""
-    try:
-        while True:
-            data = conn.recv(1024)
-            if not data:
-                break
-            buffer += data.decode()
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                if not line:
-                    continue
-                try:
-                    msg = json.loads(line)
-                    if msg.get("type") == "chat":
-                        # Decrypt the message using the current session key
-                        enc_msg = bytes.fromhex(msg.get("message", ""))
-                        plain = xor_encrypt_decrypt(enc_msg, session_key)
-                        sender = msg.get("alias", "Unknown")
-                        print(f"\n[{sender}]: {plain.decode(errors='ignore')}")
-                        print(">> ", end="", flush=True)
-                    elif msg.get("type") == "key_update":
-                        # Update the session key
-                        new_key = bytes.fromhex(msg.get("session_key", ""))
-                        session_key = new_key
-                        print("\nSession key updated from peer!")
-                        print(">> ", end="", flush=True)
-                except Exception as e:
-                    print("Error receiving message:", e)
-    except Exception as e:
-        print("Connection to", addr, "terminated:", e)
-    finally:
-        conn.close()
-        with lock:
-            if conn in connections:
-                connections.remove(conn)
-        print(f"Connection to {addr} closed.")
-
-def start_server(listen_port: int):
-    """Starts a server that listens on the specified port for new peer connections."""
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(("", listen_port))
-    server.listen(5)
-    print(f"Server running and listening on port {listen_port}...")
-    while True:
-        conn, addr = server.accept()
-        print(f"Connection received from {addr}")
-        # As the host, send the current session key to the new connection
-        send_json(conn, {"type": "key_update", "session_key": session_key.hex()})
-        with lock:
-            connections.append(conn)
-        threading.Thread(target=handle_connection, args=(conn, addr), daemon=True).start()
-
-def connect_to_peer(peer_ip: str, peer_port: int):
-    """Connects to a peer and receives the session key from the host."""
-    try:
-        conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        conn.connect((peer_ip, peer_port))
-        print(f"Connected to peer at {peer_ip}:{peer_port}")
-        # As a client, wait to receive the session key from the host
-        buffer = ""
-        while True:
-            data = conn.recv(1024)
-            if not data:
-                break
-            buffer += data.decode()
-            if "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                msg = json.loads(line)
-                if msg.get("type") == "key_update":
-                    new_key = bytes.fromhex(msg.get("session_key", ""))
-                    global session_key
-                    session_key = new_key
-                    print("Received session key from peer.")
-                    break
-        with lock:
-            connections.append(conn)
-        threading.Thread(target=handle_connection, args=(conn, (peer_ip, peer_port)), daemon=True).start()
-    except Exception as e:
-        print("Could not connect to peer:", e)
-
-def show_help():
-    """Displays a list of available commands."""
-    print("Available commands:")
-    print("/help                - Display this help")
-    print("/alias <new_alias>   - Change your alias")
-    print("/reset               - Generate a new session key (host sends update to peers)")
-    print("/connect <IP> <PORT> - Connect to a peer")
-    print("/exit                - Exit the program")
-
-def main():
-    global alias, session_key
-    alias = input("Choose an alias: ").strip()
-    try:
-        listen_port = int(input("Enter port to listen on (e.g., 12345): "))
-    except:
-        listen_port = 12345
-    # Start the server thread
-    threading.Thread(target=start_server, args=(listen_port,), daemon=True).start()
-    print(f"Welcome to XorChat, {alias}!")
-    show_help()
-    print(">> ", end="", flush=True)
-    while True:
-        try:
-            user_input = input(">> ").strip()
-            if not user_input:
-                continue
-            if user_input.startswith("/"):
-                parts = user_input.split()
-                command = parts[0].lower()
-                if command == "/help":
-                    show_help()
-                elif command == "/alias":
-                    if len(parts) > 1:
-                        alias = parts[1]
-                        print(f"Alias updated to {alias}")
-                    else:
-                        print("Usage: /alias <new_alias>")
-                elif command == "/reset":
-                    # Host generates a new session key and sends it to all connected peers
-                    session_key = os.urandom(16)
-                    print("New session key generated.")
-                    with lock:
-                        for conn in connections:
-                            send_json(conn, {"type": "key_update", "session_key": session_key.hex()})
-                elif command == "/connect":
-                    if len(parts) >= 3:
-                        peer_ip = parts[1]
-                        try:
-                            peer_port = int(parts[2])
-                            connect_to_peer(peer_ip, peer_port)
-                        except:
-                            print("Invalid port.")
-                    else:
-                        print("Usage: /connect <IP> <PORT>")
-                elif command == "/exit":
-                    print("Exiting XorChat.")
-                    sys.exit(0)
-                else:
-                    print("Unknown command. Type /help for assistance.")
-            else:
-                # Normal message: encrypt and send to all connected peers
-                encrypted = xor_encrypt_decrypt(user_input.encode(), session_key)
-                msg_obj = {
-                    "type": "chat",
-                    "alias": alias,
-                    "message": encrypted.hex()
-                }
-                # Display the decrypted message locally
-                print(f"[{alias}]: {user_input}")
-                with lock:
-                    for conn in connections:
-                        send_json(conn, msg_obj)
-        except EOFError:
-            break
-        except Exception as e:
-            print("Error:", e)
+    cmd = data.get('command', '').strip()
+    
+    if cmd.startswith('/help'):
+        emit('system_message', {'message': 'Available commands:'})
+        emit('system_message', {'message': '/alias <new_alias>   - Change your alias'})
+        emit('system_message', {'message': '/reset               - Generate a new session key'})
+        emit('system_message', {'message': '/connect <room>      - Join a chat room'})
+        
+    elif cmd.startswith('/alias '):
+        new_alias = cmd.split(' ', 1)[1]
+        connections[request.sid]['alias'] = new_alias
+        emit('system_message', {'message': f'Alias updated to {new_alias}'})
+        
+    elif cmd == '/reset':
+        session_key = os.urandom(16)
+        emit('system_message', {'message': 'New session key generated.'})
+        room = connections[request.sid]['room']
+        emit('key_update', {'session_key': session_key.hex()}, room=room)
+        
+    elif cmd.startswith('/connect '):
+        new_room = cmd.split(' ', 1)[1]
+        old_room = connections[request.sid]['room']
+        alias = connections[request.sid]['alias'] or 'Anonymous'
+        
+        # Leave the current room
+        leave_room(old_room)
+        emit('system_message', {'message': f'{alias} has left the room.'}, 
+             room=old_room, include_self=False)
+             
+        # Join the new room
+        join_room(new_room)
+        connections[request.sid]['room'] = new_room
+        emit('system_message', {'message': f'You joined room: {new_room}'})
+        emit('system_message', {'message': f'{alias} has joined the room.'}, 
+             room=new_room, include_self=False)
+             
+        # Send session key to the new user
+        emit('key_update', {'session_key': session_key.hex()})
+    
+    else:
+        emit('system_message', {'message': 'Unknown command. Type /help for assistance.'})
 
 if __name__ == "__main__":
-    main()
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000)
