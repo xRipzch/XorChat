@@ -17,7 +17,7 @@ XorChat is a simple peer-to-peer chat application written in Python. It uses an 
   - `/exit` - Exit the application
 
 ## Getting Started
-
+** No longer up to date! **
 1. **Requirements**: Ensure you have Python installed on your system.
 2. **Run the Application**:
    - Open a terminal and run:
