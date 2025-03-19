@@ -1,6 +1,6 @@
 # XorChat
 
-- ** Current Version: 0.4 **
+- ** Current Version: 0.5 **
 
 XorChat is a simple peer-to-peer chat application written in Python. It uses an XOR-based cipher for basic message encryption and decryption, and communicates using JSON messages over TCP sockets.
 
